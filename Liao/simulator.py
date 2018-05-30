@@ -1,9 +1,13 @@
+import random
+import numpy as np
 
 class Lane:
-    __slots__ = ["queue", "length"]
-    def __init__(self, length):
+    __slots__ = ["queue", "length", "road", "ilane"]
+    def __init__(self, length, road, ilane):
         self.queue = []
         self.length = length
+        self.road = road
+        self.ilane = ilane
         
     def __repr__(self):
         s = [vehicle.position for vehicle in self.queue]
@@ -46,10 +50,11 @@ class Lane:
         
     def insert(self, vehicle):
         assert vehicle.position < self.length
+        vehicle.lane = self
         if self.is_empty():
             self.queue.append(vehicle)
         else:
-            for i in range(self.length):
+            for i in range(len(self.queue)):
                 assert vehicle.position != self.queue[i].position
                 if vehicle.position < self.queue[i].position:
                     self.queue.insert(i, vehicle)
@@ -65,7 +70,7 @@ class Road:
         self.prevs = {}
         self.lanes = []
         for i in range(nlanes):
-            self.lanes.append(Lane(length))
+            self.lanes.append(Lane(length, self, i))
     
     @property
     def length(self):
@@ -186,9 +191,25 @@ class Road:
                     next_road, next_ilane = next
                     next_road.insert_vehicle(last, next_ilane)
 
+        for i, lane in enumerate(self.lanes):
+            if lane.is_empty():
+                continue
+                
+            new_queue = []
+            for vehicle in lane.queue:
+                if vehicle.horizontal_speed == 0:
+                    new_queue.append(vehicle)
+                else:
+                    dest_lane = self.lanes[i+vehicle.horizontal_speed]
+                    
+                    vehicle.horizontal_speed = 0
+                    dest_lane.insert(vehicle)
+
+            lane.queue = new_queue
 
 class Vehicle:
-    __slots__ = ["max_speed", "speed", "horizontal_speed", "position", "information"]
+    __slots__ = ["max_speed", "speed", "horizontal_speed", "position",
+                    "lane", "information"]
     
     @classmethod
     def get_vehicle(cls):
@@ -202,22 +223,41 @@ class Vehicle:
         self.position = 0
         self.horizontal_speed = 0
         self.information = {}
+        self.lane = None
     
     def __repr__(self):
         return "Vehicle ({})".format(id(self))
     
+    def need_lane_change(self):
+        if self.lane.road.nlane != 4:
+            return 0
+
+        if self.information["destination"] == 0 and self.lane.ilane == 3:
+            return -1
+        
+        if self.information["destination"] == 1 and self.lane.ilane < 3:
+            return 1
+
+        return 0
+
     def make_decision(self):
+        front_gap = self.information["front_gap"]
+
+        lane_change = self.need_lane_change()
+        if lane_change != 0:
+            front_gap = min(front_gap, self.lane.get_front_gap(self.position))
+
+        self.horizontal_speed = lane_change
+
         if self.speed < self.max_speed:
             self.speed += 1
             
-        if self.speed > self.information["front_gap"]:
-            self.speed = self.information["front_gap"]
+        if self.speed > front_gap:
+            self.speed = front_gap
                 
-        if np.random.rand() < 0.1:
-            self.speed -= 1
-            
-        if self.speed < 0:
-            self.speed = 0
+        if self.speed > 0:
+            if np.random.rand() < 0.1:
+                self.speed -= 1
 
 class Source:
     __slots__ = ["queue", "average_headway", "residule", "next", "world"]
