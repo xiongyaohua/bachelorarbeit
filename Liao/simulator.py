@@ -55,12 +55,15 @@ class Lane:
             self.queue.append(vehicle)
         else:
             for i in range(len(self.queue)):
-                assert vehicle.position != self.queue[i].position
+                if vehicle.position != self.queue[i].position:
+                    return False
                 if vehicle.position < self.queue[i].position:
                     self.queue.insert(i, vehicle)
                     break
             else:
                 self.queue.append(vehicle)
+
+            return True
             
 
 class Road:
@@ -170,7 +173,7 @@ class Road:
             for vehicle in lane.queue:
                 vehicle.make_decision()
     
-    def execute_decision(self):
+    def execute_decision_car_follow(self):
         for i, lane in enumerate(self.lanes):
             if lane.is_empty():
                 continue
@@ -191,6 +194,7 @@ class Road:
                     next_road, next_ilane = next
                     next_road.insert_vehicle(last, next_ilane)
 
+    def execute_decision_lane_change(self):
         for i, lane in enumerate(self.lanes):
             if lane.is_empty():
                 continue
@@ -203,7 +207,10 @@ class Road:
                     dest_lane = self.lanes[i+vehicle.horizontal_speed]
                     
                     vehicle.horizontal_speed = 0
-                    dest_lane.insert(vehicle)
+                    if dest_lane.insert(vehicle):
+                        pass
+                    else:
+                        new_queue.append(vehicle)
 
             lane.queue = new_queue
 
@@ -244,8 +251,8 @@ class Vehicle:
         front_gap = self.information["front_gap"]
 
         lane_change = self.need_lane_change()
-        if lane_change != 0:
-            front_gap = min(front_gap, self.lane.get_front_gap(self.position))
+        #if lane_change != 0:
+        #    front_gap = min(front_gap, self.lane.get_front_gap(self.position))
 
         self.horizontal_speed = lane_change
 
@@ -333,4 +340,5 @@ class World:
     
     def execute_decisions(self):
         for road in self.roads:
-            road.execute_decision()
+            road.execute_decision_car_follow()
+            #road.execute_decision_lane_change()
