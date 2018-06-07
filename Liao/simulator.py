@@ -50,18 +50,21 @@ class Lane:
         
     def insert(self, vehicle):
         assert vehicle.position < self.length
-        vehicle.lane = self
+        
         if self.is_empty():
             self.queue.append(vehicle)
+            vehicle.lane = self
         else:
             for i in range(len(self.queue)):
-                if vehicle.position != self.queue[i].position:
-                    return False
+                assert vehicle.position != self.queue[i].position
+                    
                 if vehicle.position < self.queue[i].position:
                     self.queue.insert(i, vehicle)
+                    vehicle.lane = self
                     break
             else:
                 self.queue.append(vehicle)
+                vehicle.lane = self
 
             return True
             
@@ -114,7 +117,9 @@ class Road:
         lane = self.lanes[ilane]
         front_vehicle = lane.get_front_vehicle(position)
         if front_vehicle is not None:
-            return front_vehicle.position - position - 1
+            gap = front_vehicle.position - position - 1
+            assert gap >= 0
+            return gap
         else:
             gap = lane.length - position - 1
             next = self.nexts.get(ilane, None)
@@ -124,6 +129,7 @@ class Road:
                 next_road, next_ilane = next
                 gap += next_road.get_front_gap(next_ilane, -1)
                 
+            assert gap >= 0
             return gap
         
     def get_back_gap(self, ilane, position):
@@ -180,6 +186,7 @@ class Road:
                 
             for vehicle in lane.queue:
                 vehicle.position += vehicle.speed
+                assert vehicle.position >= 0
             
             if lane.queue[-1].position >= lane.length:
                 last = lane.queue.pop()
@@ -207,16 +214,17 @@ class Road:
                     dest_lane = self.lanes[i+vehicle.horizontal_speed]
                     
                     vehicle.horizontal_speed = 0
-                    if dest_lane.insert(vehicle):
-                        pass
-                    else:
+                    try:
+                        dest_lane.insert(vehicle)
+                    except AssertionError:
+                        print("lane change failed")
                         new_queue.append(vehicle)
 
             lane.queue = new_queue
 
 class Vehicle:
     __slots__ = ["max_speed", "speed", "horizontal_speed", "position",
-                    "lane", "information"]
+                    "lane", "information", "lc_type"]
     
     @classmethod
     def get_vehicle(cls):
@@ -247,14 +255,56 @@ class Vehicle:
 
         return 0
 
+    def decide_lane_change(self, lane_change):
+        if self.lc_type == "normal":
+            if lane_change == -1:
+                if (self.information["left_back_gap"] > 3 and
+                    self.information["left_front_gap"] > 2):
+                    return lane_change
+                else:
+                    return 0
+            elif lane_change == 1:
+                if (self.information["right_back_gap"] > 3 and
+                    self.information["right_front_gap"] > 2):
+                    return lane_change
+                else:
+                    return 0
+            else:
+                raise
+        
+        elif self.lc_type == "aggresive":
+            return lane_change
+        
+        elif self.lc_type == "passive":
+            if lane_change == -1:
+                if (self.information["left_back_gap"] > 8 and
+                    self.information["left_front_gap"] > 5):
+                    return lane_change
+                else:
+                    return 0
+            elif lane_change == 1:
+                if (self.information["right_back_gap"] > 8 and
+                    self.information["right_front_gap"] > 5):
+                    return lane_change
+                else:
+                    return 0
+            else:
+                raise
+        
+        elif self.lc_type == "p2p":
+            pass
+        else:
+            raise
+    
     def make_decision(self):
         front_gap = self.information["front_gap"]
 
         lane_change = self.need_lane_change()
-        #if lane_change != 0:
-        #    front_gap = min(front_gap, self.lane.get_front_gap(self.position))
-
-        self.horizontal_speed = lane_change
+        if lane_change != 0:
+            front_gap = min(front_gap, self.lane.get_front_gap(self.position))
+            self.horizontal_speed = self.decide_lane_change(lane_change)
+        else:
+            self.horizontal_speed = 0
 
         if self.speed < self.max_speed:
             self.speed += 1
@@ -284,6 +334,7 @@ class Source:
         self.residule -= 1.0
         if self.residule <= 0.0:
             vehilce = Vehicle.get_vehicle()
+            vehilce.lc_type = self.world.lc_type
             self.queue.append(vehilce)
             
         if self.next and self.queue:
@@ -294,11 +345,13 @@ class Source:
                 self.next.insert_vehicle(vehicle, free_lane)
 
 class World:
-    __slots__ = ["time", "roads", "sources"]
-    def __init__(self):
+    __slots__ = ["time", "roads", "sources", "lc_type"]
+    def __init__(self, lc_type="normal"):
         self.roads = []
         self.sources = []
+        self.lc_type = lc_type
         self.time=0
+
         
     def add_road(self, length, nlane):
         road = Road(length, nlane)
@@ -341,4 +394,4 @@ class World:
     def execute_decisions(self):
         for road in self.roads:
             road.execute_decision_car_follow()
-            #road.execute_decision_lane_change()
+            road.execute_decision_lane_change()
